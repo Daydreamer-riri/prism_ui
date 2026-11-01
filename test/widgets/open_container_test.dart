@@ -10,9 +10,6 @@ import '../helpers/test_app.dart';
 
 const _viewSize = Size(800, 600);
 
-// The zoom is switched off for the standard push while its behavior is tuned.
-const _zoomOff = !openContainerZooms;
-
 // iOS shrinks the page below by a width of 34.667 dp.
 final _recededShrink = 34.667 / _viewSize.width;
 
@@ -30,6 +27,7 @@ void main() {
               width: 160,
               height: 80,
               child: OpenContainer<String>(
+                transition: OpenContainerTransition.zoom,
                 closedBuilder: (_, open) {
                   return FilledButton(
                     onPressed: open,
@@ -66,7 +64,7 @@ void main() {
     expect(result, 'done');
     expect(find.text('Closed'), findsOneWidget);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('morphs the closed shape into the open page as it fills in', (
     tester,
@@ -83,6 +81,7 @@ void main() {
               width: 160,
               height: 80,
               child: OpenContainer<void>(
+                transition: OpenContainerTransition.zoom,
                 closedShape: closedShape,
                 closedBuilder: (_, open) {
                   return GestureDetector(
@@ -122,34 +121,57 @@ void main() {
         tester.element(find.text('Page', skipOffstage: false)),
       )!.animation!.value;
       final full = Offset.zero & _viewSize;
-      final closedRadius = closedShape.borderRadius.resolve(null);
+      final tile = recededRect(closedRect, _viewSize, progress);
+      final closedRadius =
+          closedShape.borderRadius.resolve(null) *
+          (tile.width / closedRect.width);
       final Rect rect;
       final BorderRadius radius;
       if (opening) {
-        final from = closedRect.width / _viewSize.width;
+        final from = tile.width / _viewSize.width;
         final scale = lerpDouble(from, 1, progress)!;
         rect = Rect.fromCenter(
-          center: Offset.lerp(closedRect.center, full.center, progress)!,
+          center: Offset.lerp(tile.center, full.center, progress)!,
           width: _viewSize.width * scale,
           height:
-              lerpDouble(
-                closedRect.height / from,
-                _viewSize.height,
-                progress,
-              )! *
+              lerpDouble(tile.height / from, _viewSize.height, progress)! *
               scale,
         );
-        radius = closedRadius / from * (1 - progress) * scale;
+        radius =
+            BorderRadius.lerp(
+              closedRadius / from,
+              BorderRadius.zero,
+              progress,
+            )! *
+            scale;
       } else {
-        rect = Rect.lerp(closedRect, full, progress)!;
-        radius = closedRadius * (1 - progress);
+        rect = Rect.lerp(tile, full, progress)!;
+        radius = BorderRadius.lerp(closedRadius, BorderRadius.zero, progress)!;
       }
+      bool near(double a, double b) => (a - b).abs() < 0.01;
+      bool nearRect(Rect a) =>
+          near(a.left, rect.left) &&
+          near(a.top, rect.top) &&
+          near(a.right, rect.right) &&
+          near(a.bottom, rect.bottom);
       return paints
-        ..clipRSuperellipse(rsuperellipse: radius.toRSuperellipse(rect))
-        ..rect(
-          rect: rect,
-          color: page.withValues(alpha: clampDouble(progress, 0, 1)),
-        );
+        ..something((method, arguments) {
+          if (method != #clipRSuperellipse) {
+            return false;
+          }
+          final clip = arguments[0] as RSuperellipse;
+          return nearRect(clip.outerRect) &&
+              near(clip.tlRadiusX, radius.topLeft.x);
+        })
+        ..something((method, arguments) {
+          if (method != #drawRect) {
+            return false;
+          }
+          final color = (arguments[1] as Paint).color;
+          return nearRect(arguments[0] as Rect) &&
+              near(color.a, clampDouble(progress, 0, 1)) &&
+              near(color.r, page.r);
+        });
     }
 
     await tester.tap(find.text('Card'));
@@ -171,7 +193,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Page'), findsNothing);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('opens by callback and supports interrupted reverse', (
     tester,
@@ -184,6 +206,7 @@ void main() {
           body: Align(
             alignment: Alignment.topLeft,
             child: OpenContainer<String>(
+              transition: OpenContainerTransition.zoom,
               closedBuilder: (_, open) {
                 return TextButton(
                   onPressed: open,
@@ -230,6 +253,7 @@ void main() {
               width: 160,
               height: 80,
               child: OpenContainer<void>(
+                transition: OpenContainerTransition.zoom,
                 closedShape: const RoundedSuperellipseBorder(
                   borderRadius: BorderRadius.all(Radius.circular(24)),
                 ),
@@ -287,7 +311,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Page'), findsNothing);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   Widget containerApp({
     required CloseContainerBuilder closedBuilder,
@@ -300,6 +324,7 @@ void main() {
             width: 160,
             height: 80,
             child: OpenContainer<void>(
+              transition: OpenContainerTransition.zoom,
               closedBuilder: closedBuilder,
               openBuilder: openBuilder,
             ),
@@ -341,7 +366,7 @@ void main() {
     expect(pageBuilds, 1);
     expect(tileBuilds, 2);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('a transition leaves no animation undisposed', (tester) async {
     var undisposed = 0;
@@ -419,6 +444,7 @@ void main() {
           body: Theme(
             data: placeTheme,
             child: OpenContainer<void>(
+              transition: OpenContainerTransition.zoom,
               closedBuilder: (context, open) {
                 tileThemes.add(Theme.of(context));
                 return TextButton(onPressed: open, child: const Text('Tile'));
@@ -435,7 +461,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 30));
     expect(tileThemes, hasLength(2));
     expect(tileThemes.last.colorScheme, tileThemes.first.colorScheme);
-  }, skip: _zoomOff);
+  });
 
   bool snapshots(WidgetTester tester, String text) {
     return tester
@@ -497,7 +523,7 @@ void main() {
     expect(snapshots(tester, 'Page'), isTrue);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   Widget homeApp({ClosedCallback<void>? onClosed}) {
     return HostApp(
@@ -512,6 +538,7 @@ void main() {
                 width: 200,
                 height: 60,
                 child: OpenContainer<void>(
+                  transition: OpenContainerTransition.zoom,
                   onClosed: onClosed,
                   closedBuilder: (_, open) {
                     return TextButton(
@@ -613,7 +640,7 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('shrinks the page below and zooms out of the tile there', (
     tester,
@@ -657,7 +684,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Page'), findsNothing);
     expect(tester.getSize(find.text('Tile')), page);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('snapshots the page below only while the zoom moves', (
     tester,
@@ -682,7 +709,7 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(snapshots(tester, 'Below'), isFalse);
-  }, skip: _zoomOff);
+  });
 
   const tileColor = Color(0xFFFF0000);
 
@@ -693,6 +720,7 @@ void main() {
       return SizedBox(
         height: 80,
         child: OpenContainer<void>(
+          transition: OpenContainerTransition.zoom,
           closedBuilder: (_, open) {
             return GestureDetector(
               onTap: open,
@@ -811,7 +839,7 @@ void main() {
       expect(find.text('Tile $name').hitTestable(), findsOneWidget);
     }
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('a pop before the zoom moves hands the tile back', (
     tester,
@@ -875,7 +903,7 @@ void main() {
     expect(find.text('Page'), findsNothing);
     expect(closed, isTrue);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('a drag down dismisses the page and follows across, held back', (
     tester,
@@ -908,7 +936,7 @@ void main() {
     expect(find.text('Page'), findsNothing);
     expect(closed, isTrue);
     expect(tester.takeException(), isNull);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('a drag with any upward part leaves the page alone', (
     tester,
@@ -928,7 +956,7 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
     expect(find.text('Page'), findsOneWidget);
-  }, skip: _zoomOff);
+  });
 
   testWidgets('a drag let go short of 150 dp springs the page back', (
     tester,
@@ -952,5 +980,5 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getRect(find.text('Page')), open);
     expect(find.text('Below'), findsNothing);
-  }, skip: _zoomOff);
+  });
 }

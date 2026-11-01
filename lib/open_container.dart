@@ -26,13 +26,8 @@ typedef CloseContainerBuilder =
 
 typedef ClosedCallback<S> = void Function(S data);
 
-// TODO: temporary, switches the zoom off for the standard push.
-const _useStandardRoute = true;
-
-/// Whether [OpenContainer] zooms, so tests of the zoom can stand down while
-/// it is switched off.
-@visibleForTesting
-const openContainerZooms = !_useStandardRoute;
+/// How an [OpenContainer] opens its page.
+enum OpenContainerTransition { push, zoom }
 
 /// Whether the card grows to the display's corners, as iOS's does, rather
 /// than to square ones; square either way where the platform reports none.
@@ -47,6 +42,7 @@ class OpenContainer<T extends Object?> extends StatefulWidget {
     required this.closedBuilder,
     required this.openBuilder,
     this.clipBehavior = Clip.antiAlias,
+    this.transition = OpenContainerTransition.push,
   });
 
   final RoundedSuperellipseBorder? closedShape;
@@ -54,6 +50,7 @@ class OpenContainer<T extends Object?> extends StatefulWidget {
   final CloseContainerBuilder closedBuilder;
   final OpenContainerBuilder<T> openBuilder;
   final Clip clipBehavior;
+  final OpenContainerTransition transition;
 
   @override
   State<OpenContainer<T?>> createState() => _OpenContainerState<T>();
@@ -63,25 +60,24 @@ class _OpenContainerState<T> extends State<OpenContainer<T?>> {
   final GlobalKey<_HideableState> _hideableKey = GlobalKey<_HideableState>();
   final GlobalKey _closedBuilderKey = GlobalKey();
 
-  Route<T> _standardRoute() => CardPageRoute<T>(
-    builder: (context) => widget.openBuilder(
-      context,
-      ({T? returnValue}) => Navigator.of(context).pop(returnValue),
+  Route<T> _route() => switch (widget.transition) {
+    OpenContainerTransition.push => CardPageRoute<T>(
+      builder: (context) => widget.openBuilder(
+        context,
+        ({T? returnValue}) => Navigator.of(context).pop(returnValue),
+      ),
     ),
-  );
+    OpenContainerTransition.zoom => _OpenContainerRoute<T>(
+      closedShape: widget.closedShape,
+      closedBuilder: widget.closedBuilder,
+      openBuilder: widget.openBuilder,
+      hideableKey: _hideableKey,
+      closedBuilderKey: _closedBuilderKey,
+    ),
+  };
 
   Future<void> openContainer() async {
-    final T? data = await Navigator.of(context).push(
-      _useStandardRoute
-          ? _standardRoute()
-          : _OpenContainerRoute<T>(
-              closedShape: widget.closedShape,
-              closedBuilder: widget.closedBuilder,
-              openBuilder: widget.openBuilder,
-              hideableKey: _hideableKey,
-              closedBuilderKey: _closedBuilderKey,
-            ),
-    );
+    final T? data = await Navigator.of(context).push(_route());
     if (widget.onClosed != null) {
       widget.onClosed!(data);
     }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+`OpenContainer` takes a `transition`, push by default or zoom.
+
 ## 0.1.1
 
 Install from pub.dev in the README.
