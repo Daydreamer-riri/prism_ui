@@ -67,11 +67,6 @@ class TextSelectionMenu extends StatefulWidget {
       ),
       SelectionChangedCause.toolbar,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (state.mounted) {
-        state.showToolbar();
-      }
-    });
   }
 
   static Widget selectableRegion(
@@ -96,6 +91,7 @@ class TextSelectionMenu extends StatefulWidget {
 class _TextSelectionMenuState extends State<TextSelectionMenu> {
   PopupRoute<void>? _route;
   final _selection = ValueNotifier<Rect>(Rect.zero);
+  final _items = ValueNotifier<List<PopupMenuItem>>(const []);
 
   @override
   void initState() {
@@ -118,6 +114,14 @@ class _TextSelectionMenuState extends State<TextSelectionMenu> {
         )) {
       return;
     }
+    if (_route is EditMenuRoute) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _updateItems();
+        }
+      });
+      return;
+    }
     _close();
     _scheduleOpen();
   }
@@ -125,7 +129,10 @@ class _TextSelectionMenuState extends State<TextSelectionMenu> {
   @override
   void dispose() {
     _close();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _selection.dispose());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _selection.dispose();
+      _items.dispose();
+    });
     super.dispose();
   }
 
@@ -155,6 +162,15 @@ class _TextSelectionMenuState extends State<TextSelectionMenu> {
         route.navigator!.removeRoute(route);
       }
     });
+  }
+
+  void _updateItems() {
+    final items = _menuItems();
+    if (items.isEmpty) {
+      _close();
+    } else {
+      _items.value = items;
+    }
   }
 
   List<PopupMenuItem> _menuItems() {
@@ -218,10 +234,11 @@ class _TextSelectionMenuState extends State<TextSelectionMenu> {
     List<PopupMenuItem> items,
   ) {
     _updateSelection();
+    _items.value = items;
     return EditMenuRoute(
       barrierLabel: UiLocalizations.of(widget.owner).close,
       elevated: ElevatedSurfaceTheme.isIn(widget.owner),
-      items: items,
+      items: _items,
       selection: _selection,
     );
   }

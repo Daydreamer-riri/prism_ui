@@ -103,7 +103,9 @@ void main() {
     expect(find.byGlyph(Glyphs.copy), findsOneWidget);
   }, variant: _mobile);
 
-  testWidgets('select all on a phone closes the menu', (tester) async {
+  testWidgets('select all on a phone keeps the menu for the new selection', (
+    tester,
+  ) async {
     final controller = await _pumpField(tester);
     await _doubleTap(tester, find.byType(TextField));
 
@@ -111,8 +113,170 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.selection.textInside(controller.text), 'alpha beta');
+    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Select all'), findsNothing);
+    expect(_toolbarShown(tester), isTrue);
+  }, variant: _mobile);
+
+  testWidgets('select all updates the open menu in place', (tester) async {
+    await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+    final route = ModalRoute.of(tester.element(find.text('Copy')));
+
+    await tester.tap(find.text('Select all'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(ModalRoute.of(tester.element(find.text('Copy'))), same(route));
+    expect(route!.isCurrent, isTrue);
+  }, variant: _mobile);
+
+  testWidgets('select all from the card folds back to the bar', (tester) async {
+    tester.view.physicalSize = const Size(180, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+    await tester.tap(find.byGlyph(Glyphs.chevronForward));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Select all'));
+    await tester.pumpAndSettle();
+
+    expect(find.byGlyph(Glyphs.copy), findsNothing);
+    expect(find.text('Cut'), findsOneWidget);
+  }, variant: _mobile);
+
+  testWidgets('copy closes the menu because the field hides its toolbar', (
+    tester,
+  ) async {
+    await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+
+    await tester.tap(find.text('Copy'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Copy'), findsNothing);
     expect(_toolbarShown(tester), isFalse);
+  }, variant: _mobile);
+
+  testWidgets('cut closes the menu because the field hides its toolbar', (
+    tester,
+  ) async {
+    final controller = await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+    final selected = controller.selection.textInside(controller.text);
+
+    await tester.tap(find.text('Cut'));
+    await tester.pumpAndSettle();
+
+    expect(controller.text, isNot(contains(selected)));
+    expect(find.text('Cut'), findsNothing);
+    expect(_toolbarShown(tester), isFalse);
+  }, variant: _mobile);
+
+  testWidgets('select all in selectable text keeps the menu on a phone', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const TestApp(
+        child: HostScaffold(body: Center(child: SelectableText('alpha beta'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _doubleTap(tester, find.text('alpha beta'));
+
+    await tester.tap(find.text('Select all'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy'), findsOneWidget);
+  }, variant: _mobile);
+
+  testWidgets('select all in a selection area keeps the menu on a phone', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const TestApp(
+        child: HostScaffold(
+          body: Center(child: SelectionArea(child: Text('alpha beta'))),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('alpha beta'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Select all'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy'), findsOneWidget);
+  }, variant: _mobile);
+
+  testWidgets('press areas stay inside the edit menu on both ends', (
+    tester,
+  ) async {
+    await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+
+    final bar = tester.getRect(
+      find.ancestor(of: find.text('Copy'), matching: find.byType(Padding)).last,
+    );
+    final regions = find
+        .byType(PressRegion)
+        .evaluate()
+        .map((e) => tester.getRect(find.byWidget(e.widget)));
+    for (final region in regions) {
+      expect(region.left - bar.left, greaterThanOrEqualTo(6));
+      expect(bar.right - region.right, greaterThanOrEqualTo(6));
+      expect(region.height, 32);
+      expect(region.top - bar.top, 6);
+      expect(bar.bottom - region.bottom, 6);
+    }
+  }, variant: _mobile);
+
+  testWidgets('a press between the highlight and the cell edge still picks', (
+    tester,
+  ) async {
+    final controller = await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+
+    final highlight = tester.getRect(
+      find.ancestor(
+        of: find.text('Select all'),
+        matching: find.byType(PressRegion),
+      ),
+    );
+    await tester.tapAt(highlight.topCenter - const Offset(0, 3));
+    await tester.pumpAndSettle();
+
+    expect(controller.selection.textInside(controller.text), 'alpha beta');
+  }, variant: _mobile);
+
+  testWidgets('card rows stay inside the unfolded menu', (tester) async {
+    tester.view.physicalSize = const Size(180, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpField(tester);
+    await _doubleTap(tester, find.byType(TextField));
+    await tester.tap(find.byGlyph(Glyphs.chevronForward));
+    await tester.pumpAndSettle();
+
+    final card = tester.getRect(
+      find
+          .ancestor(of: find.text('Select all'), matching: find.byType(Padding))
+          .last,
+    );
+    final row = tester.getRect(
+      find
+          .ancestor(
+            of: find.text('Select all'),
+            matching: find.byType(PressRegion),
+          )
+          .first,
+    );
+    expect(row.left - card.left, 8);
+    expect(card.right - row.right, 8);
+    expect(card.bottom - row.bottom, 8);
   }, variant: _mobile);
 
   testWidgets('a caret offers to select its word', (tester) async {

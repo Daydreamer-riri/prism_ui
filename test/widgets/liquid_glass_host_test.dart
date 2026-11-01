@@ -651,7 +651,9 @@ void main() {
         EditMenuRoute(
           barrierLabel: 'close',
           selection: selection,
-          items: [PopupMenuItem(label: 'Copy', onPressed: () {})],
+          items: ValueNotifier([
+            PopupMenuItem(label: 'Copy', onPressed: () {}),
+          ]),
         ),
       ),
     );
@@ -687,7 +689,9 @@ void main() {
           EditMenuRoute(
             barrierLabel: 'close',
             selection: selection,
-            items: [PopupMenuItem(label: 'Copy', onPressed: () {})],
+            items: ValueNotifier([
+              PopupMenuItem(label: 'Copy', onPressed: () {}),
+            ]),
           ),
         ),
       );

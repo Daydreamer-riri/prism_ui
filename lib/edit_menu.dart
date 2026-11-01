@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 
-import 'package:prism_ui/color_scheme.dart';
 import 'package:prism_ui/context.dart';
 import 'package:prism_ui/divider.dart';
 import 'package:prism_ui/icons/icons.dart';
@@ -14,20 +13,28 @@ import 'package:prism_ui/popup.dart';
 import 'package:prism_ui/press_region.dart';
 import 'package:prism_ui/shape.dart';
 import 'package:prism_ui/surface.dart';
+import 'package:prism_ui/theme_data.dart';
 import 'package:prism_ui/typography.dart';
 
 // Measured on UIEditMenuInteraction of iOS 27 (iPhone 17 Pro).
 const _barHeight = 44.0;
 const _barInset = 4.0;
 const _cellPadding = 16.0;
-const _cellPressHeight = 38.0;
+const _cellPressInset = 2.0;
+const _cellPressHeight = 32.0;
 const _separatorHeight = 18.0;
+// The pressed row of PopupMenu.
+const _pressedDark = Color(0x40CCCCCC);
+const _pressedLight = Color(0x66BCBCBC);
 const _chevronSize = 36.0;
 const _margin = 16.0;
 const _lineGap = 15.0;
 const _closedScale = 0.2;
 const _cardWidth = 250.0;
 const _cardRowHeight = 42.0;
+const _cardInset = 8.0;
+const _cardRowPadding = 12.0;
+const _cardCorner = AppCorner.md + _cardInset;
 const _holdMargin = 4.0;
 
 final _openCurve = SpringCurve(
@@ -43,6 +50,10 @@ final _unfoldCurve = SpringCurve(
 /// The menu a touch selection opens, a capsule of labels beside the selection
 /// that unfolds into a card when they do not all fit. [selection] is in the
 /// coordinates of the navigator the route is pushed on.
+///
+/// Picking an item only runs it. Whoever owns the selection decides what
+/// follows, as the text widgets do with their toolbars: pop this route, or
+/// change [items] and [selection] to keep it up for the new selection.
 class EditMenuRoute extends PopupRoute<void> {
   EditMenuRoute({
     required this.items,
@@ -51,7 +62,7 @@ class EditMenuRoute extends PopupRoute<void> {
     this.elevated = false,
   }) : super(requestFocus: false);
 
-  final List<PopupMenuItem> items;
+  final ValueListenable<List<PopupMenuItem>> items;
   final ValueListenable<Rect> selection;
 
   /// Whether the menu opens from a sheet's [ElevatedSurfaceTheme], which lies
@@ -91,11 +102,6 @@ class EditMenuRoute extends PopupRoute<void> {
       navigator?.pop();
     }
   }
-
-  void _pick(PopupMenuItem item) {
-    _dismiss();
-    item.onPressed?.call();
-  }
 }
 
 class _EditMenu extends StatefulWidget {
@@ -121,8 +127,24 @@ class _EditMenuState extends State<_EditMenu>
     reverseCurve: Curves.easeIn,
   );
 
+  // Stable, as a builder listening anew during the close would reach
+  // notifiers their owner has already disposed.
+  late final _menuChanged = Listenable.merge([
+    widget.route.selection,
+    widget.route.items,
+  ]);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.route.items.addListener(_foldOnNewItems);
+  }
+
+  void _foldOnNewItems() => _unfold.value = 0;
+
   @override
   void dispose() {
+    widget.route.items.removeListener(_foldOnNewItems);
     _opened.dispose();
     _unfolded.dispose();
     _unfold.dispose();
@@ -136,7 +158,7 @@ class _EditMenuState extends State<_EditMenu>
     );
     try {
       return [
-        for (final item in widget.route.items)
+        for (final item in widget.route.items.value)
           ((painter
                     ..text = TextSpan(text: item.label, style: style)
                     ..layout())
@@ -150,7 +172,7 @@ class _EditMenuState extends State<_EditMenu>
   }
 
   int _fittingCells(List<double> widths, double maxWidth) {
-    final total = widths.fold(_barInset, (sum, width) => sum + width);
+    final total = widths.fold(2 * _barInset, (sum, width) => sum + width);
     if (total <= maxWidth) {
       return widths.length;
     }
@@ -173,9 +195,9 @@ class _EditMenuState extends State<_EditMenu>
     int count,
   ) {
     final colorScheme = context.colorScheme;
-    final items = widget.route.items;
+    final items = widget.route.items.value;
     return Padding(
-      padding: const EdgeInsetsDirectional.only(start: _barInset),
+      padding: const EdgeInsets.symmetric(horizontal: _barInset),
       child: Row(
         children: [
           for (var i = 0; i < count; i++) ...[
@@ -191,18 +213,33 @@ class _EditMenuState extends State<_EditMenu>
                   ),
                 ),
               ),
-            SizedBox(
-              width: widths[i],
-              child: Center(
-                child: SizedBox(
-                  height: _cellPressHeight,
-                  child: PressRegion(
-                    onTap: () => widget.route._pick(items[i]),
-                    canRequestFocus: false,
-                    shape: AppShape.full,
-                    overlay: _pressOverlay(colorScheme),
-                    child: Center(
-                      child: Text(items[i].label, style: style, maxLines: 1),
+            // The highlight is smaller than the cell, the target is not.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              excludeFromSemantics: true,
+              onTap: () => items[i].onPressed?.call(),
+              child: SizedBox(
+                width: widths[i],
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _cellPressInset,
+                    ),
+                    child: SizedBox(
+                      height: _cellPressHeight,
+                      child: PressRegion(
+                        onTap: () => items[i].onPressed?.call(),
+                        canRequestFocus: false,
+                        shape: AppShape.full,
+                        overlay: _pressOverlay(context),
+                        child: Center(
+                          child: Text(
+                            items[i].label,
+                            style: style,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -222,14 +259,13 @@ class _EditMenuState extends State<_EditMenu>
                   excludeFromSemantics: true,
                   shape: AppShape.circle,
                   fill: colorScheme.onSurface.withValues(alpha: 0.05),
-                  overlay: _pressOverlay(colorScheme),
+                  overlay: _pressOverlay(context),
                   child: const Center(
                     child: GlyphIcon(Glyphs.chevronForward, size: 18),
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: _barInset),
           ],
         ],
       ),
@@ -237,48 +273,55 @@ class _EditMenuState extends State<_EditMenu>
   }
 
   Widget _buildCard(BuildContext context) {
-    final colorScheme = context.colorScheme;
     final style = AppTextStyle.body.of(context);
-    return Column(
-      children: [
-        for (final item in widget.route.items)
-          SizedBox(
-            height: _cardRowHeight,
-            child: PressRegion(
-              onTap: () => widget.route._pick(item),
-              canRequestFocus: false,
-              overlay: _pressOverlay(colorScheme),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: _cellPadding),
-                child: Row(
-                  children: [
-                    if (item.glyph case final glyph?) ...[
-                      GlyphIcon(glyph, size: 20),
-                      const SizedBox(width: 12),
-                    ],
-                    Expanded(
-                      child: Text(
-                        item.label,
-                        style: style,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+    return Padding(
+      padding: const EdgeInsets.all(_cardInset),
+      child: Column(
+        children: [
+          for (final item in widget.route.items.value)
+            SizedBox(
+              height: _cardRowHeight,
+              child: PressRegion(
+                onTap: () => item.onPressed?.call(),
+                canRequestFocus: false,
+                shape: AppShape.all(AppCorner.md),
+                overlay: _pressOverlay(context),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _cardRowPadding,
+                  ),
+                  child: Row(
+                    children: [
+                      if (item.glyph case final glyph?) ...[
+                        GlyphIcon(glyph, size: 20),
+                        const SizedBox(width: 12),
+                      ],
+                      Expanded(
+                        child: Text(
+                          item.label,
+                          style: style,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
-  WidgetStateProperty<Color?> _pressOverlay(ColorScheme colorScheme) =>
-      WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.pressed)
-            ? colorScheme.onSurface.withValues(alpha: 0.06)
-            : null,
-      );
+  WidgetStateProperty<Color?> _pressOverlay(BuildContext context) {
+    final pressed = Theme.brightnessOf(context) == Brightness.dark
+        ? _pressedDark
+        : _pressedLight;
+    return WidgetStateProperty.resolveWith(
+      (states) => states.contains(WidgetState.pressed) ? pressed : null,
+    );
+  }
 
   Widget _buildPane(
     BuildContext context,
@@ -330,7 +373,7 @@ class _EditMenuState extends State<_EditMenu>
     final count = _fittingCells(widths, area.width);
     final fits = count == widths.length;
     final barWidth = fits
-        ? widths.fold(_barInset, (sum, width) => sum + width)
+        ? widths.fold(2 * _barInset, (sum, width) => sum + width)
         : math.min(
             area.width,
             widths.take(count).fold(0.0, (sum, width) => sum + width) +
@@ -354,7 +397,7 @@ class _EditMenuState extends State<_EditMenu>
       area.right - barWidth,
     );
     final cardHeight = math.min(
-      widget.route.items.length * _cardRowHeight,
+      widget.route.items.value.length * _cardRowHeight + 2 * _cardInset,
       area.height,
     );
     final cardWidth = math.min(_cardWidth, area.width);
@@ -399,7 +442,7 @@ class _EditMenuState extends State<_EditMenu>
                   opacity: _opened,
                   child: _buildPane(
                     context,
-                    _lerp(_barHeight / 2, AppCorner.xl, unfolded),
+                    _lerp(_barHeight / 2, _cardCorner, unfolded),
                     Rect.fromPoints(
                       origin + (sweep.topLeft - origin) / scale,
                       origin + (sweep.bottomRight - origin) / scale,
@@ -462,9 +505,9 @@ class _EditMenuState extends State<_EditMenu>
           child: SurfaceScope(
             level: SurfaceLevel.floatingOf(context.colorScheme),
             child: LayoutBuilder(
-              builder: (context, constraints) => ValueListenableBuilder(
-                valueListenable: route.selection,
-                builder: (context, _, _) => TapRegion(
+              builder: (context, constraints) => ListenableBuilder(
+                listenable: _menuChanged,
+                builder: (context, _) => TapRegion(
                   groupId: SelectableRegion,
                   child: TextFieldTapRegion(
                     child: _buildMenu(context, constraints),
