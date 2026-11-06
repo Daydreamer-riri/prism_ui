@@ -11,12 +11,14 @@ import 'package:prism_ui/theme_data.dart';
 
 enum ColorStyle {
   vivid,
+  vibrant,
   tinted,
   soft,
   monochrome;
 
   Variant get _variant => switch (this) {
     vivid || tinted => Variant.content,
+    vibrant => Variant.vibrant,
     soft => Variant.tonalSpot,
     monochrome => Variant.monochrome,
   };
@@ -33,19 +35,29 @@ ColorScheme seededColorScheme({
   final source = Hct.fromInt(seedColor.toARGB32());
   final scheme = _dynamicScheme(source, dark, style);
   final primary = scheme.primaryPalette;
+  final containerChroma = style == ColorStyle.vibrant
+      ? _vibrantContainerChroma
+      : _primaryContainerChroma;
   final container = TonalPalette.of(
     primary.hue,
-    min(primary.chroma, _primaryContainerChroma),
+    min(primary.chroma, containerChroma),
   );
   final tint = style == ColorStyle.tinted
       ? min(source.chroma / _tintDivisor, _maxTintChroma)
       : null;
   Color neutral(DynamicColor role, double maxChroma, [double? darkTone]) {
     final palette = role.palette(scheme);
+    final chroma = switch (style) {
+      ColorStyle.vibrant => palette.chroma,
+      ColorStyle.tinted => tint!,
+      ColorStyle.vivid ||
+      ColorStyle.soft ||
+      ColorStyle.monochrome => min(palette.chroma, maxChroma),
+    };
     return Color(
       Hct.from(
         palette.hue,
-        tint ?? min(palette.chroma, maxChroma),
+        chroma,
         (dark ? darkTone : null) ?? role.getTone(scheme),
       ).toInt(),
     );
@@ -56,7 +68,7 @@ ColorScheme seededColorScheme({
   final paperChroma = dark ? _surfaceChroma : _paperChroma;
   final accent = switch (style) {
     ColorStyle.vivid || ColorStyle.tinted => _accent(seedColor, source, dark),
-    ColorStyle.soft || ColorStyle.monochrome => null,
+    ColorStyle.vibrant || ColorStyle.soft || ColorStyle.monochrome => null,
   };
   final primaryColor = accent?.primary ?? role(MaterialDynamicColors.primary);
   return ColorScheme(
@@ -146,6 +158,8 @@ const _maxTintChroma = 10.0;
 
 const _primaryContainerChroma = 48.0;
 
+const _vibrantContainerChroma = 64.0;
+
 const _darkOnSurfaceTone = 97;
 
 const _darkCardTone = 15.0;
@@ -209,6 +223,10 @@ DynamicScheme _dynamicScheme(Hct source, bool dark, ColorStyle style) {
         )
       : switch (style) {
           ColorStyle.vivid || ColorStyle.tinted => DynamicScheme.content(
+            sourceColorHct: source,
+            isDark: dark,
+          ),
+          ColorStyle.vibrant => DynamicScheme.vibrant(
             sourceColorHct: source,
             isDark: dark,
           ),

@@ -20,7 +20,31 @@ import 'color_math.dart';
 import 'hct.dart';
 import 'tonal_palette.dart';
 
-enum Variant { monochrome, tonalSpot, content }
+enum Variant { monochrome, tonalSpot, content, vibrant }
+
+const _vibrantHues = <double>[0, 41, 61, 101, 131, 181, 251, 301, 360];
+const _vibrantSecondaryRotations = <double>[18, 15, 10, 12, 15, 18, 15, 12, 12];
+const _vibrantTertiaryRotations = <double>[35, 30, 20, 25, 30, 35, 30, 25, 25];
+
+double _rotatedHue(
+  Hct sourceColorHct,
+  List<double> hues,
+  List<double> rotations,
+) {
+  final sourceHue = sourceColorHct.hue;
+  if (rotations.length == 1) {
+    return MathUtils.sanitizeDegreesDouble(sourceHue + rotations[0]);
+  }
+  final size = hues.length;
+  for (var i = 0; i <= size - 2; i++) {
+    final thisHue = hues[i];
+    final nextHue = hues[i + 1];
+    if (thisHue <= sourceHue && sourceHue < nextHue) {
+      return MathUtils.sanitizeDegreesDouble(sourceHue + rotations[i]);
+    }
+  }
+  return sourceHue;
+}
 
 class DynamicScheme {
   final int sourceColorArgb;
@@ -97,6 +121,24 @@ class DynamicScheme {
         tertiaryPalette: TonalPalette.of(sourceColorHct.hue, 0.0),
         neutralPalette: TonalPalette.of(sourceColorHct.hue, 0.0),
         neutralVariantPalette: TonalPalette.of(sourceColorHct.hue, 0.0),
+      );
+
+  DynamicScheme.vibrant({required Hct sourceColorHct, required bool isDark})
+    : this(
+        sourceColorHct: sourceColorHct,
+        variant: Variant.vibrant,
+        isDark: isDark,
+        primaryPalette: TonalPalette.of(sourceColorHct.hue, 200.0),
+        secondaryPalette: TonalPalette.of(
+          _rotatedHue(sourceColorHct, _vibrantHues, _vibrantSecondaryRotations),
+          24.0,
+        ),
+        tertiaryPalette: TonalPalette.of(
+          _rotatedHue(sourceColorHct, _vibrantHues, _vibrantTertiaryRotations),
+          32.0,
+        ),
+        neutralPalette: TonalPalette.of(sourceColorHct.hue, 10.0),
+        neutralVariantPalette: TonalPalette.of(sourceColorHct.hue, 12.0),
       );
 }
 
